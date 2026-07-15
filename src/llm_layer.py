@@ -10,7 +10,7 @@ class LlmManager:
             raise ValueError("GEMINI_API_KEY is not set in the environment or passed arguments.")
             
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = "gemini-2.5-flash"
+        self.model_name = "gemini-3.5-flash"
 
     def generate_operational_memo(self, inputs, predictions, insights):
         """
