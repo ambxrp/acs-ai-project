@@ -1,6 +1,7 @@
 import os
 from google import genai
 from google.genai import types
+import time
 
 class LlmManager:
     def __init__(self, api_key=None):
@@ -79,11 +80,37 @@ Please generate the memo structured in Markdown with the following sections. Mai
 """
 
         print(f"Calling Gemini API to generate operational memo for District {inputs['district_id']}...")
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3  # lower temp for more professional, analytical text
-            )
-        )
-        return response.text
+        
+        # Robust Retry Logic
+        max_retries = 3
+        retry_delay = 2 
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.3
+                    )
+                )
+                return response.text
+                
+            except Exception as e:
+                error_msg = str(e)
+                # If it's a 503, we wait and try again
+                if "503" in error_msg and attempt < max_retries - 1:
+                    print(f"⚠️ Gemini API busy (503). Retrying in {retry_delay} seconds... (Attempt {attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2 
+                else:
+                    # For 401s, other errors, or if we run out of retries, return the graceful fallback
+                    print(f"❌ LLM Generation Failed: {error_msg}")
+                    return (
+                        "### ⚠️ API UNAVAILABLE NOTICE\n\n"
+                        "The Gemini AI Memo Generator is currently experiencing an issue and could not draft the memo "
+                        "(this may be due to high server demand or an invalid API key).\n\n"
+                        "**However, your local Machine Learning predictions executed successfully.** \n\n"
+                        "Please review the projected weekly case volumes, historical data, and capacity strain warning "
+                        "on the dashboard to coordinate your field deployments."
+                    )

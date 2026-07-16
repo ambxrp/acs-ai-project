@@ -80,7 +80,7 @@ source venv/bin/activate  # On macOS/Linux
 # venv\Scripts\activate   # On Windows
 
 # Install required dependencies
-pip install pandas numpy scikit-learn google-genai python-dotenv streamlit
+pip install pandas numpy scikit-learn google-genai python-dotenv streamlit folium streamlit-folium
 ```
 
 ### 3. Configure Environment Variables
