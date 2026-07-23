@@ -1,0 +1,15 @@
+# San Antonio ACS Capacity & Stray Early Warning System - Requirements
+
+# Data Science & Machine Learning Foundation
+pandas
+numpy
+scikit-learn
+
+# Generative AI & Environment Management
+google-genai
+python-dotenv
+
+# Interactive Dashboard & Geographic Visualization
+streamlit
+folium
+streamlit-folium

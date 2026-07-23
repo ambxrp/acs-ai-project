@@ -4,10 +4,11 @@ from src.model import ModelManager
 from src.llm_layer import LlmManager
 
 class AnimalManagementPipeline:
-    def __init__(self, data_path="data/acs_data.csv", model_dir="models", api_key=None):
+    def __init__(self, data_path="data/acs_data.csv", model_dir="models", api_key=None, model_name=None):
         self.data_path = data_path
         self.model_dir = model_dir
         self.api_key = api_key
+        self.model_name = model_name
         
         # Initialize modules
         self.data_processor = DataProcessor(file_path=data_path)
@@ -46,7 +47,7 @@ class AnimalManagementPipeline:
         """
         # Ensure LLM Manager is initialized
         if self.llm_manager is None:
-            self.llm_manager = LlmManager(api_key=self.api_key)
+            self.llm_manager = LlmManager(api_key=self.api_key, model_name=self.model_name)
             
         # 1. Resolve Weather Inputs
         base_temp, base_precip = self.data_processor.get_weather_baseline(month)

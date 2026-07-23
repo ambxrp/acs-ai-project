@@ -2,16 +2,22 @@ import os
 from google import genai
 from google.genai import types
 import time
+import dotenv
 
 class LlmManager:
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, model_name=None):
+        # Ensure environment variables from .env are loaded
+        dotenv.load_dotenv()
+        
         # Resolve API Key
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY is not set in the environment or passed arguments.")
             
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = "gemini-3.5-flash"
+        # Load model name from parameter or GEMINI_MODEL in environment (configured via .env file)
+        # Defaults to "gemini-2.5-flash" if not specified or empty
+        self.model_name = model_name or os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
 
     def generate_operational_memo(self, inputs, predictions, insights):
         """
@@ -79,7 +85,7 @@ Please generate the memo structured in Markdown with the following sections. Mai
    - Provide 2 short bullet points proposing operational adjustments based on the capacity strain score of {predictions['predicted_capacity_strain_score']}/100.
 """
 
-        print(f"Calling Gemini API to generate operational memo for District {inputs['district_id']}...")
+        print(f"Calling Gemini API ({self.model_name}) to generate operational memo for District {inputs['district_id']}...")
         
         # Robust Retry Logic
         max_retries = 3
