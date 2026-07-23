@@ -6,7 +6,7 @@ import dotenv
 
 class LlmManager:
     def __init__(self, api_key=None, model_name=None):
-        # Ensure environment variables from .env are loaded
+        # Load environment variables
         dotenv.load_dotenv()
         
         # Resolve API Key
@@ -15,20 +15,16 @@ class LlmManager:
             raise ValueError("GEMINI_API_KEY is not set in the environment or passed arguments.")
             
         self.client = genai.Client(api_key=self.api_key)
-        # Load model name from parameter or GEMINI_MODEL in environment (configured via .env file)
-        # Defaults to "gemini-2.5-flash" if not specified or empty
+        # Load model name from settings or use standard default
         self.model_name = model_name or os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
 
     def generate_operational_memo(self, inputs, predictions, insights):
-        """
-        Calls Gemini to generate a highly detailed operational memo based on 
-        predictions and historical data context.
-        """
+        """Generate operational command memo using Gemini"""
         # Determine trends
         temp_val = inputs['temperature']
         precip_val = inputs['precipitation']
         
-        # Simple descriptions of deviations
+        # Determine deviation labels
         temp_trend = "above historical baseline" if temp_val > inputs['baseline_temp'] + 2 else (
             "below historical baseline" if temp_val < inputs['baseline_temp'] - 2 else "normal seasonal range"
         )
@@ -104,13 +100,13 @@ Please generate the memo structured in Markdown with the following sections. Mai
                 
             except Exception as e:
                 error_msg = str(e)
-                # If it's a 503, we wait and try again
+                # Retry if service is busy
                 if "503" in error_msg and attempt < max_retries - 1:
                     print(f"⚠️ Gemini API busy (503). Retrying in {retry_delay} seconds... (Attempt {attempt + 1}/{max_retries})")
                     time.sleep(retry_delay)
                     retry_delay *= 2 
                 else:
-                    # For 401s, other errors, or if we run out of retries, return the graceful fallback
+                    # Return graceful fallback for failures
                     print(f"❌ LLM Generation Failed: {error_msg}")
                     return (
                         "### ⚠️ API UNAVAILABLE NOTICE\n\n"

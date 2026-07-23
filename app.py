@@ -6,7 +6,7 @@ def main():
     print("🔄 Loading environment variables...")
     load_dotenv()
     
-    # 1. Verify API Key
+    # Verify API Key
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if not gemini_key:
         print("❌ API Key Error: GEMINI_API_KEY could not be retrieved from local environment.")
@@ -14,7 +14,7 @@ def main():
         
     print("🤖 Initializing Animal Management Pipeline Verification...")
     
-    # 2. Verify Data Ingestion, cleaning, and model loading/training
+    # Verify ingestion and model training
     try:
         pipeline = AnimalManagementPipeline(
             data_path="data/acs_data.csv",
@@ -29,16 +29,16 @@ def main():
             print("🔄 Training model checkpoints for verification...")
             pipeline.train_system(augment=True, augmentation_factor=5, n_estimators=10)
             pipeline.load_system()
-        print("✅ Environment Verification: scikit-learn models initialized and ready.")
+        print("✅ Environment Verification: models initialized and ready.")
         
     except Exception as e:
         print(f"❌ Data or ML Environment Error: {e}")
         return
 
-    # 3. Verify GenAI API Connectivity and run a mini scenario test
+    # Verify connection and run test scenario
     try:
         print("🔮 Testing scenario prediction & Gemini connection...")
-        # Run a quick test scenario for District 3, month 7, week 28
+        # Run a quick test scenario
         results = pipeline.run_scenario(
             district_id=3,
             month=7,

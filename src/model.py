@@ -9,7 +9,7 @@ class ModelManager:
         self.model_dir = model_dir
         self.feature_names = ['COUNCIL_DIST', 'Month', 'Week_of_Year', 'Temperature', 'Precipitation']
         
-        # Dictionary to hold the trained models
+        # Dict of trained models
         self.models = {
             'stray': None,
             'total': None,
@@ -18,12 +18,10 @@ class ModelManager:
         }
         
     def train(self, training_df, n_estimators=100, random_seed=42):
-        """
-        Trains four Random Forest models using the engineered features from the preprocessed DataFrame.
-        """
+        """Train Random Forest models on the dataset"""
         X = training_df[self.feature_names]
         
-        # Define the targets
+        # Define target variables
         targets = {
             'stray': training_df['Weekly_Stray_Count'],
             'total': training_df['Weekly_Call_Count'],
@@ -44,7 +42,7 @@ class ModelManager:
             print(f"✅ Target '{key}' trained successfully. R^2 score: {rf.score(X, targets[key]):.4f}")
             
     def save_models(self):
-        """Serializes the trained models to the specified directory."""
+        """Save trained models to disk"""
         if not os.path.exists(self.model_dir):
             os.makedirs(self.model_dir)
             
@@ -58,7 +56,7 @@ class ModelManager:
             print(f"Saved model '{key}' to {path}")
 
     def load_models(self):
-        """Deserializes models from the specified directory. Returns True if all loaded successfully."""
+        """Load models from disk"""
         success = True
         for key in self.models.keys():
             path = os.path.join(self.model_dir, f"{key}_rf_model.pkl")
@@ -72,15 +70,13 @@ class ModelManager:
         return success
 
     def predict(self, district_id, month, week_of_year, temperature, precipitation):
-        """
-        Runs predictions for a single district/timeframe/weather scenario.
-        """
-        # Ensure models are loaded/trained
+        """Run predictions for district and weather scenario"""
+        # Check model initialization
         for key, model in self.models.items():
             if model is None:
                 raise ValueError(f"Model '{key}' is not trained or loaded. Call train() or load_models() first.")
                 
-        # Build input vector as DataFrame to maintain feature names
+        # Create input dataframe
         input_data = pd.DataFrame(
             [[district_id, month, week_of_year, temperature, precipitation]],
             columns=self.feature_names
@@ -89,7 +85,7 @@ class ModelManager:
         predictions = {}
         for key, model in self.models.items():
             pred_val = model.predict(input_data)[0]
-            # Quantities should be positive and rounded to logical numbers, strain score bounded 0-100
+            # Clean predictions and clip strain score between 0 and 100
             if key == 'strain':
                 predictions[key] = round(float(np.clip(pred_val, 0.0, 100.0)), 2)
             else:

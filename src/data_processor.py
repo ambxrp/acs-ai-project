@@ -3,7 +3,7 @@ import re
 import numpy as np
 import pandas as pd
 
-# Historical San Antonio monthly climate averages: (Avg High °F, Avg Low °F, Mean Temp °F, Precip inches)
+# Monthly climate averages for San Antonio high low mean and rain
 SAN_ANTONIO_CLIMATE = {
     1: (63, 41, 52.0, 1.96),
     2: (68, 45, 56.5, 1.74),
@@ -25,7 +25,7 @@ class DataProcessor:
         self.raw_df = None
         self.clean_df = None
         
-        # Reference percentiles for normalization
+        # Reference values for normalization
         self.max_weekly_calls = 100.0
         self.max_weekly_strays = 30.0
         
@@ -33,7 +33,7 @@ class DataProcessor:
         self.clean_data()
         
     def load_data(self):
-        """Loads raw 311 animal care services data from CSV."""
+        """Loads raw animal care services data from CSV"""
         if not os.path.exists(self.file_path):
             raise FileNotFoundError(f"Dataset not found at: {self.file_path}")
         print(f"Reading dataset: {self.file_path}")
@@ -41,22 +41,22 @@ class DataProcessor:
         print(f"Loaded {len(self.raw_df)} raw records.")
 
     def clean_data(self):
-        """Cleans columns, isolates Council Districts, and standardizes dates."""
+        """Cleans columns isolates districts and standardizes dates"""
         df = self.raw_df.dropna(subset=['OPENEDDATETIME', 'COUNCIL_DIST']).copy()
         
-        # Standardize Council District to integers (1-10)
+        # Convert district to integers 1 to 10
         df['COUNCIL_DIST'] = df['COUNCIL_DIST'].astype(str).str.extract(r'(\d+)').astype(float)
         df = df[df['COUNCIL_DIST'].isin(range(1, 11))].copy()
         df['COUNCIL_DIST'] = df['COUNCIL_DIST'].astype(int)
         
-        # Parse Dates
+        # Parse dates
         df['OPENEDDATETIME'] = pd.to_datetime(df['OPENEDDATETIME'], errors='coerce')
         df = df.dropna(subset=['OPENEDDATETIME']).copy()
         
-        # Exclude anomalies in CLOSED dates
+        # Exclude anomalies in closed dates
         df['CLOSEDDATETIME'] = pd.to_datetime(df['CLOSEDDATETIME'], errors='coerce')
         
-        # Isolate temporal groupings
+        # Create temporal groups
         df['Year'] = df['OPENEDDATETIME'].dt.year
         df['Week_of_Year'] = df['OPENEDDATETIME'].dt.isocalendar().week.astype(int)
         df['Month'] = df['OPENEDDATETIME'].dt.month.astype(int)
@@ -65,23 +65,20 @@ class DataProcessor:
         print(f"Cleaned and validated {len(self.clean_df)} records.")
 
     def extract_street_name(self, address):
-        """Helper to extract clean street name from OBJECTDESC."""
+        """Extract clean street name from address"""
         if pd.isna(address):
             return "Unknown Street"
-        # Split on comma to get the primary address segment
+        # Get primary address segment
         parts = address.split(",")
         street_part = parts[0].strip()
-        # Remove leading digits (house numbers)
+        # Remove house numbers
         street_name = re.sub(r'^\d+\s+', '', street_part)
-        # Remove common units/apartments markers if any
+        # Remove units or apartments
         street_name = re.sub(r'\s+(APT|STE|UNIT|BLDG)\s+.*$', '', street_name, flags=re.IGNORECASE)
         return street_name.strip()
 
     def get_district_insights(self, district_id):
-        """
-        Extracts top historical call types and top locations for a specific district.
-        Used for embedding local context in LLM prompts.
-        """
+        """Get top historical calls and locations for district context"""
         dist_df = self.clean_df[self.clean_df['COUNCIL_DIST'] == district_id]
         if dist_df.empty:
             return {
@@ -90,13 +87,12 @@ class DataProcessor:
                 "total_historical_calls": 0
             }
             
-        # Top 3 call types
+        # Top three call types
         top_types = dist_df['TYPENAME'].value_counts().head(3).index.tolist()
         
-        # Top 3 locations (street names)
+        # Top three street names
         dist_df_copy = dist_df.copy()
         dist_df_copy['Street'] = dist_df_copy['OBJECTDESC'].apply(self.extract_street_name)
-        # Exclude placeholder entries or broad highway markers if possible, or just take the top 3
         top_streets = dist_df_copy['Street'].value_counts().head(3).index.tolist()
         
         return {
@@ -106,17 +102,11 @@ class DataProcessor:
         }
 
     def preprocess_and_aggregate(self, augment=True, augmentation_factor=5, random_seed=42):
-        """
-        Groups case volumes per district per week. 
-        Applies a data augmentation pipeline with random weather perturbations 
-        and biologically/operationally sound volume adjustments.
-        This breaks colinearity between Month and Weather, allowing the model 
-        to learn real sensitivity to temperature and precipitation shifts.
-        """
+        """Aggregate data and apply weather augmentation to train models"""
         np.random.seed(random_seed)
         
         print("Aggregating base historical counts...")
-        # 1. Base aggregations
+        # Perform base aggregations
         base_grouped = self.clean_df.groupby(['Year', 'Month', 'Week_of_Year', 'COUNCIL_DIST']).agg(
             Weekly_Call_Count=('CASEID', 'count'),
             Weekly_Stray_Count=('TYPENAME', lambda x: (x == 'Animals(Stray Animal)').sum()),
@@ -124,7 +114,7 @@ class DataProcessor:
             Weekly_Late_Count=('Late (Yes/No)', lambda x: (x == 'YES').sum())
         ).reset_index()
         
-        # 2. Fill gaps: Ensure every single week & district combo is represented
+        # Ensure every week and district combo is represented
         all_weeks = base_grouped[['Year', 'Month', 'Week_of_Year']].drop_duplicates()
         all_districts = pd.DataFrame({'COUNCIL_DIST': range(1, 11)})
         grid_df = all_weeks.merge(all_districts, how='cross')
@@ -135,7 +125,7 @@ class DataProcessor:
             how='left'
         ).fillna(0)
         
-        # Cast to proper types
+        # Cast to integer types
         final_base = final_base.astype({
             'Weekly_Call_Count': int,
             'Weekly_Stray_Count': int,
@@ -143,14 +133,14 @@ class DataProcessor:
             'Weekly_Late_Count': int
         })
         
-        # Establish normalization scales (95th percentiles of base data)
+        # Establish normalization scales
         self.max_weekly_calls = max(1.0, final_base['Weekly_Call_Count'].quantile(0.95))
         self.max_weekly_strays = max(1.0, final_base['Weekly_Stray_Count'].quantile(0.95))
         
         records = []
         
         print(f"Applying weather data augmentation (factor = {augmentation_factor if augment else 1})...")
-        # 3. Apply Weather mapping and augmentation
+        # Apply weather mapping and augmentation
         for _, row in final_base.iterrows():
             year = int(row['Year'])
             month = int(row['Month'])
@@ -162,13 +152,13 @@ class DataProcessor:
             a_base = row['Weekly_Aggressive_Count']
             l_base = row['Weekly_Late_Count']
             
-            # Lookup historical climate baseline
+            # Get historical climate baseline
             _, _, temp_mean, precip_mean = SAN_ANTONIO_CLIMATE[month]
             
             iterations = augmentation_factor if augment else 1
             for i in range(iterations):
                 if augment and iterations > 1:
-                    # Perturb temperature and precipitation
+                    # Add random weather variations
                     d_temp = np.random.normal(0, 4.0)
                     d_precip = np.random.normal(0, 1.2)
                 else:
@@ -178,13 +168,12 @@ class DataProcessor:
                 temp_act = temp_mean + d_temp
                 precip_act = max(0.0, precip_mean + d_precip)
                 
-                # Apply biological & behavioral multipliers based on weather deviations
-                # 1. Temperature: hotter temp -> more active outdoor strays, higher aggression, higher general volume
+                # Apply weather multipliers
                 f_temp_general = np.clip(1.0 + 0.015 * d_temp, 0.7, 1.3)
                 f_temp_stray = np.clip(1.0 + 0.02 * d_temp, 0.7, 1.3)
                 f_temp_agg = np.clip(1.0 + 0.025 * d_temp, 0.7, 1.4)
                 
-                # 2. Precipitation: heavier rain -> less general roamers (hide), but more rescue spikes & late cases
+                # Apply rain multipliers
                 f_precip_general = np.clip(1.0 - 0.03 * d_precip, 0.6, 1.2)
                 f_precip_stray = np.clip(1.0 - 0.06 * d_precip, 0.5, 1.1)
                 f_precip_agg = np.clip(1.0 - 0.02 * d_precip, 0.7, 1.1)
@@ -194,16 +183,16 @@ class DataProcessor:
                 s_aug = max(0, int(round(s_base * f_temp_stray * f_precip_stray)))
                 a_aug = max(0, int(round(a_base * f_temp_agg * f_precip_agg)))
                 
-                # Late counts scale with total volume and weather challenges (rain causes delays)
+                # Calculate late counts based on weather
                 f_late_weather = np.clip(1.0 + 0.01 * d_temp + 0.03 * d_precip, 0.8, 1.4)
                 l_aug = min(c_aug, max(0, int(round(l_base * f_late_weather * (c_aug / (c_base + 1.0))))))
                 
-                # Calculate Capacity Strain Score (CSS) between 0 and 100
+                # Calculate strain score between 0 and 100
                 v_score = min(100.0, (c_aug / self.max_weekly_calls) * 100.0)
                 s_score = min(100.0, (s_aug / self.max_weekly_strays) * 100.0)
                 l_ratio = (l_aug / c_aug) * 100.0 if c_aug > 0 else 0.0
                 
-                # Capacity Strain Score Formula: 40% Volume, 30% Stray Volume, 30% SLA Late Ratio
+                # Compute weighted strain score
                 css = round(0.4 * v_score + 0.3 * s_score + 0.3 * l_ratio, 2)
                 
                 records.append({
@@ -225,7 +214,7 @@ class DataProcessor:
         return augmented_df
 
     def get_weather_baseline(self, month):
-        """Returns the default temperature and precipitation for a month."""
+        """Get baseline weather values for a given month"""
         if month in SAN_ANTONIO_CLIMATE:
             _, _, temp_mean, precip_mean = SAN_ANTONIO_CLIMATE[month]
             return temp_mean, precip_mean

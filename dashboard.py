@@ -7,8 +7,7 @@ from streamlit_folium import st_folium
 from dotenv import load_dotenv
 from src.pipeline import AnimalManagementPipeline
 
-# --- Descriptive District Mapping ---
-# Maps the backend integer to a readable San Antonio region
+# District mappings for the dashboard
 DISTRICT_NAMES = {
     1: "District 1 (Downtown / Central)",
     2: "District 2 (Eastside)",
@@ -22,14 +21,14 @@ DISTRICT_NAMES = {
     10: "District 10 (Northeast)"
 }
 
-# --- Page Configuration ---
+# Set layout parameters
 st.set_page_config(
     page_title="ACS Early Warning System", 
     page_icon="🐾", 
     layout="wide"
 )
 
-# --- Environment & Backend Initialization ---
+# Initialize backend pipeline from environment
 @st.cache_resource
 def load_pipeline():
     load_dotenv()
@@ -51,16 +50,15 @@ if pipeline is None:
     st.error("❌ API Key Error: GEMINI_API_KEY could not be retrieved. Please check your .env file.")
     st.stop()
 
-# --- 1. Sidebar: Scenario Controls ---
+# Configure sidebar scenario options
 st.sidebar.title("⚙️ Scenario Controls")
 st.sidebar.markdown("Configure the timeframe and environmental variables to simulate a predictive scenario.")
 
-# Updated Selectbox with readable names
 district = st.sidebar.selectbox(
     "Target City Council District", 
     options=list(DISTRICT_NAMES.keys()), 
     format_func=lambda x: DISTRICT_NAMES[x],
-    index=2 # Defaults to District 3
+    index=2
 )
 
 month = st.sidebar.slider("Target Month of Year", min_value=1, max_value=12, value=7)
@@ -74,7 +72,7 @@ precip = st.sidebar.slider("Precipitation Forecast (in)", min_value=0.0, max_val
 
 generate_btn = st.sidebar.button("Generate Memo", type="primary", use_container_width=True)
 
-# --- Sidebar: Advanced Model Management ---
+# Advanced model training controls
 st.sidebar.markdown("---")
 with st.sidebar.expander("🛠️ Advanced: Model Management"):
     st.markdown("Use your backend's `train_system` functionality to retrain the Random Forest models with new parameters.")
@@ -95,19 +93,18 @@ with st.sidebar.expander("🛠️ Advanced: Model Management"):
             except Exception as e:
                 st.error(f"Training failed: {e}")
 
-# --- Main Dashboard Panel ---
+# Render main panel headers
 st.title("🐾 ACS Capacity & Stray Early Warning System")
 st.markdown("Proactively manage capacity strain, field deployments, and animal intake risks across San Antonio.")
 
-# 1. Initialize a place in memory (session_state) to hold our results
+# Initialize session state for scenario outputs
 if 'scenario_results' not in st.session_state:
     st.session_state.scenario_results = None
 
-# 2. When the button is clicked, fetch data and save it to memory
+# Store execution outputs when generated
 if generate_btn:
     with st.spinner("Evaluating historical datasets and generating operational memo..."):
         try:
-            # Save the pipeline output directly into session_state
             st.session_state.scenario_results = pipeline.run_scenario(
                 district_id=district,
                 month=month,
@@ -119,21 +116,21 @@ if generate_btn:
             st.error(f"An error occurred while running the prediction pipeline: {e}")
             st.session_state.scenario_results = None
 
-# 3. If memory has data (either from just now, or from a previous click), display it!
+# Render scenario outputs if available
 if st.session_state.scenario_results is not None:
     results = st.session_state.scenario_results
     predictions = results['predictions']
     insights = results['insights']
     memo = results['operational_memo']
 
-    # --- Row 1: Key Performance Indicators (KPIs) ---
+    # Display weekly metrics
     st.subheader("📊 Projected Weekly Case Volumes", divider="gray")
     col1, col2, col3 = st.columns(3)
     col1.metric("Projected Total Cases", predictions['predicted_total_count'])
     col2.metric("Projected Stray Reports", predictions['predicted_stray_count'])
     col3.metric("Projected Aggressive Incidents", predictions['predicted_aggressive_count'])
 
-    # --- Row 2: Alert Banner (Capacity Warning) ---
+    # Display capacity warning cards
     st.subheader("⚠️ Capacity Warning Level", divider="gray")
     strain_score = predictions['predicted_capacity_strain_score']
     
@@ -144,20 +141,19 @@ if st.session_state.scenario_results is not None:
     else:
         st.error(f"🔴 **High Strain (Score: {strain_score}/100)** - CRITICAL: High risk of exceeding shelter capacity. Immediate action required.")
 
-    # --- Row 3: Map & Historical Context ---
+    # Render mapping components and historical stats
     st.subheader(f"📍 {DISTRICT_NAMES[district]} Context", divider="gray")
     
     map_col, text_col = st.columns([1.5, 1])
     
     with map_col:
         try:
-            import math # We need this for the coordinate conversion math
+            import math
             
             with open("data/Council_Districts.geojson", "r") as f:
                 geojson_data = json.load(f)
 
-            # --- NEW: AUTOMATIC COORDINATE CONVERSION ---
-            # Converts Web Mercator (meters) to WGS84 (Lat/Lon) so Folium can read it.
+            # Convert coordinate points to standard latitude longitude format
             def convert_coords(coords):
                 if isinstance(coords[0], (int, float)):
                     x, y = coords[0], coords[1]
@@ -166,18 +162,15 @@ if st.session_state.scenario_results is not None:
                     return [lon, lat]
                 return [convert_coords(c) for c in coords]
 
-            # Check a random coordinate to see if conversion is actually needed
             sample = geojson_data['features'][0]['geometry']['coordinates']
             while isinstance(sample[0], list):
                 sample = sample[0]
                 
-            # If the coordinate is massive (not a normal Lat/Lon), convert the whole file
             if sample[0] < -180 or sample[0] > 180:
                 for feature in geojson_data['features']:
                     feature['geometry']['coordinates'] = convert_coords(feature['geometry']['coordinates'])
-            # --------------------------------------------
 
-            # 1. Find the target district's data
+            # Find matching district element
             target_feature = None
             for feature in geojson_data['features']:
                 prop_dist = feature['properties'].get('District')
@@ -185,23 +178,20 @@ if st.session_state.scenario_results is not None:
                     target_feature = feature
                     break
             
-            # 2. Initialize the map dynamically based on the target district
+            # Draw folium map layers
             if target_feature:
-                # Wrap the single district in a FeatureCollection so Folium can read its bounds safely
                 single_feature_geojson = {
                     "type": "FeatureCollection",
                     "features": [target_feature]
                 }
                 district_bounds = folium.GeoJson(single_feature_geojson).get_bounds()
                 
-                # Create a blank map and immediately force it to fit the district's exact coordinates
                 m = folium.Map()
                 m.fit_bounds(district_bounds)
             else:
-                # Fallback if the district is somehow missing
                 m = folium.Map(location=[29.4241, -98.4936], zoom_start=10)
 
-            # 3. Draw the full city boundaries and highlight the target
+            # Apply style rules to target shape
             def style_fn(feature):
                 feature_dist = int(float(feature['properties'].get('District', 0)))
                 is_target = feature_dist == district
@@ -219,7 +209,6 @@ if st.session_state.scenario_results is not None:
                 tooltip=folium.GeoJsonTooltip(fields=['District'], aliases=['District: '])
             ).add_to(m)
 
-            # 4. Render the map
             st_folium(m, height=350, use_container_width=True, returned_objects=[])
             
         except FileNotFoundError:
@@ -236,7 +225,7 @@ if st.session_state.scenario_results is not None:
         for loc in insights['top_locations']:
             st.markdown(f"- {loc}")
 
-    # --- Row 4: Copy-Pasteable Operational Memo ---
+    # Render memo field values
     st.subheader("📋 Operational Command & Early Warning Memo", divider="gray")
     st.markdown(memo)
     

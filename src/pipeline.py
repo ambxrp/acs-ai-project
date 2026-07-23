@@ -13,49 +13,43 @@ class AnimalManagementPipeline:
         # Initialize modules
         self.data_processor = DataProcessor(file_path=data_path)
         self.model_manager = ModelManager(model_dir=model_dir)
-        self.llm_manager = None  # Lazy initialize to avoid errors if API key is not present initially
-        
+        self.llm_manager = None
+
     def train_system(self, augment=True, augmentation_factor=5, n_estimators=100, random_seed=42):
-        """
-        Runs the full data preparation and model training workflow.
-        Stores the resulting model files in self.model_dir.
-        """
-        print("--- Starting Pipeline Training ---")
-        # 1. Prepare data
+        """Run full data preparation and model training workflow"""
+        print("Starting Pipeline Training")
+        # Prepare training data
         training_df = self.data_processor.preprocess_and_aggregate(
             augment=augment, 
             augmentation_factor=augmentation_factor, 
             random_seed=random_seed
         )
         
-        # 2. Train models
+        # Train model targets
         self.model_manager.train(training_df, n_estimators=n_estimators, random_seed=random_seed)
         
-        # 3. Save models
+        # Save model state
         self.model_manager.save_models()
-        print("--- Pipeline Training Complete ---")
+        print("Pipeline Training Complete")
 
     def load_system(self):
-        """Loads trained models from disk. Returns True if successful."""
+        """Load trained models from disk"""
         print("Loading model checkpoints from disk...")
         return self.model_manager.load_models()
 
     def run_scenario(self, district_id, month, week_of_year, temp_override=None, precip_override=None):
-        """
-        Runs a prediction scenario for the specified district, time, and weather offsets.
-        Generates the operational command memo using the Gemini LLM.
-        """
+        """Run prediction scenario and generate memo"""
         # Ensure LLM Manager is initialized
         if self.llm_manager is None:
             self.llm_manager = LlmManager(api_key=self.api_key, model_name=self.model_name)
             
-        # 1. Resolve Weather Inputs
+        # Resolve weather inputs
         base_temp, base_precip = self.data_processor.get_weather_baseline(month)
         
         temp_val = temp_override if temp_override is not None else base_temp
         precip_val = precip_override if precip_override is not None else base_precip
         
-        # 2. Run Predictions
+        # Run machine learning predictions
         predictions = self.model_manager.predict(
             district_id=district_id,
             month=month,
@@ -64,10 +58,10 @@ class AnimalManagementPipeline:
             precipitation=precip_val
         )
         
-        # 3. Fetch Historical District Insights
+        # Fetch historical insights
         insights = self.data_processor.get_district_insights(district_id)
         
-        # 4. Construct Input Details for LLM
+        # Construct input details for LLM
         inputs = {
             'district_id': district_id,
             'month': month,
@@ -78,7 +72,7 @@ class AnimalManagementPipeline:
             'baseline_precip': base_precip
         }
         
-        # 5. Generate Operational Memo
+        # Generate command memo
         memo = self.llm_manager.generate_operational_memo(
             inputs=inputs,
             predictions=predictions,
